@@ -297,14 +297,281 @@
             }
         };
 
-        const APP_SCHEMA = {
-            meta: [
-                'file_name', 'parsing_method_id', 'doc_type', 'invoice_no', 'so_no', 'po_no',
-                'shipping_info', 'mrn', 'physician', 'dos', 'case_id', 'vendor_tax_id',
-                'total_tax', 'total_freight', 'grand_total'
-            ],
-            lineItems: ['qty', 'part_number', 'description', 'unit_price', 'ext_price']
+        // #region FIELD_EXTRACTION_SCHEMA
+        /**
+         * FIELD_REGISTRY - Comprehensive schema defining all extractable fields
+         * Each field has: displayName, type, and hardcoded aliases
+         * User aliases (from Settings > Mappings) are merged at runtime via AliasEngine
+         */
+        const FIELD_REGISTRY = {
+            // ========================================
+            // META FIELDS - Document-level information
+            // ========================================
+            meta: {
+                file_name: {
+                    displayName: 'Filename',
+                    type: 'string',
+                    aliases: [] // System-generated, no aliases needed
+                },
+                parsing_method_id: {
+                    displayName: 'Parsing Method',
+                    type: 'string',
+                    aliases: ['Parser', 'Method']
+                },
+                doc_type: {
+                    displayName: 'Document Type',
+                    type: 'string',
+                    aliases: ['Type', 'DocType', 'Document']
+                },
+                invoice_no: {
+                    displayName: 'Invoice #',
+                    type: 'string',
+                    aliases: ['Invoice', 'Invoice Number', 'Inv #', 'Inv No', 'Invoice No.']
+                },
+                so_no: {
+                    displayName: 'SO #',
+                    type: 'string',
+                    aliases: ['Sales Order', 'S/O', 'SO', 'SO Number', 'Sales Order #']
+                },
+                po_no: {
+                    displayName: 'PO #',
+                    type: 'string',
+                    aliases: ['PO', 'Purchase Order', 'P/O', 'PO Number', 'Purchase Order #', 'Order #']
+                },
+                mrn: {
+                    displayName: 'MRN',
+                    type: 'string',
+                    aliases: ['Medical Record Number', 'MR#', 'Patient ID', 'Chart #']
+                },
+                physician: {
+                    displayName: 'Physician',
+                    type: 'string',
+                    aliases: ['Doctor', 'Dr.', 'Surgeon', 'Provider', 'Attending']
+                },
+                dos: {
+                    displayName: 'DOS',
+                    type: 'date',
+                    aliases: ['Date of Service', 'Service Date', 'Procedure Date', 'Surgery Date']
+                },
+                case_id: {
+                    displayName: 'Case ID',
+                    type: 'string',
+                    aliases: ['Case #', 'Case Number', 'Surgical Case']
+                },
+                vendor_name: {
+                    displayName: 'Vendor',
+                    type: 'string',
+                    aliases: ['Supplier', 'Manufacturer', 'Company']
+                },
+                facility: {
+                    displayName: 'Facility',
+                    type: 'string',
+                    aliases: ['Hospital', 'Location', 'Ship To', 'Destination', 'Customer']
+                },
+                order_date: {
+                    displayName: 'Order Date',
+                    type: 'date',
+                    aliases: ['PO Date', 'Purchase Date', 'Ordered']
+                },
+                ship_date: {
+                    displayName: 'Ship Date',
+                    type: 'date',
+                    aliases: ['Shipping Date', 'Shipped', 'Date Shipped']
+                },
+                subtotal: {
+                    displayName: 'Subtotal', // extracted total_items
+                    type: 'currency',
+                    aliases: ['Total Items', 'Subtotal per Document', 'Net Amount', 'Taxable Base', 'Sub Total']
+                },
+                total_tax: {
+                    displayName: 'Total Tax',
+                    type: 'currency',
+                    aliases: ['Tax', 'Sales Tax', 'Tax Amount']
+                },
+                total_freight: {
+                    displayName: 'Freight',
+                    type: 'currency',
+                    aliases: ['Shipping', 'Freight Charge', 'Delivery']
+                },
+                grand_total: {
+                    displayName: 'Grand Total',
+                    type: 'currency',
+                    aliases: ['Total', 'Invoice Total', 'Amount Due', 'Total Amount']
+                }
+            },
+
+            // ========================================
+            // LINE ITEM FIELDS - Row-level information
+            // ========================================
+            lineItems: {
+                qty: {
+                    displayName: 'Qty',
+                    type: 'number',
+                    aliases: ['Quantity', 'Qty Shipped', 'Qty Ordered', 'Units', 'Count', 'Shipped']
+                },
+                part_number: {
+                    displayName: 'Part #',
+                    type: 'string',
+                    aliases: ['Part Number', 'PartNo', 'Part No', 'Item #', 'Item Number',
+                        'Ref #', 'Reference', 'Catalog #', 'Cat #', 'SKU', 'Product Code',
+                        'GTIN', 'UPC', 'Material #', 'Material Number']
+                },
+                description: {
+                    displayName: 'Description',
+                    type: 'string',
+                    aliases: ['Part Desc', 'Part Description', 'Item Description', 'Product',
+                        'Product Name', 'Item', 'Material Description', 'Desc']
+                },
+                unit_price: {
+                    displayName: 'Price/ea',
+                    type: 'currency',
+                    aliases: ['Price', 'Unit Price', 'Each', 'Price Each', 'Rate', 'Cost',
+                        'Unit Cost', 'Price Per Unit', '$ Each', 'U/P']
+                },
+                ext_price: {
+                    displayName: 'Price Ext',
+                    type: 'currency',
+                    aliases: ['Extended Price', 'Ext Price', 'Extended', 'Line Total',
+                        'Total Price', 'Amount', 'Ext Amt', 'Extended Amount', 'Net']
+                },
+                lot_number: {
+                    displayName: 'Lot #',
+                    type: 'string',
+                    aliases: ['Lot', 'Lot No', 'Batch', 'Batch #']
+                },
+                serial_number: {
+                    displayName: 'Serial #',
+                    type: 'string',
+                    aliases: ['Serial', 'SN', 'Serial No']
+                },
+                expiration_date: {
+                    displayName: 'Exp Date',
+                    type: 'date',
+                    aliases: ['Expiration', 'Expiry', 'Exp', 'Use By']
+                },
+                uom: {
+                    displayName: 'UoM',
+                    type: 'string',
+                    aliases: ['Unit', 'Unit of Measure', 'UOM', 'Meas.', 'Unit Type', 'Packaging']
+                }
+            }
         };
+
+        // Backward compatibility: APP_SCHEMA for existing code references
+        const APP_SCHEMA = {
+            meta: Object.keys(FIELD_REGISTRY.meta),
+            lineItems: Object.keys(FIELD_REGISTRY.lineItems)
+        };
+        // #endregion FIELD_EXTRACTION_SCHEMA
+
+        // #region ALIAS_UTILITIES
+        /**
+         * AliasEngine - Utility for field alias resolution and AI prompt context
+         * Merges hardcoded aliases with user-defined aliases from Settings > Mappings
+         */
+        const AliasEngine = {
+            /**
+             * Get all aliases for a canonical field (hardcoded + user-defined)
+             * @param {string} category - 'meta' or 'lineItems'
+             * @param {string} canonicalName - The canonical field name (e.g., 'part_number')
+             * @returns {string[]} - Array of lowercase aliases
+             */
+            getAliases(category, canonicalName) {
+                const fieldDef = FIELD_REGISTRY[category]?.[canonicalName];
+                if (!fieldDef) return [];
+
+                const hardcodedAliases = fieldDef.aliases || [];
+                const userAliases = Store.state.config.fieldLabelAliases?.[canonicalName] || [];
+
+                // Merge, deduplicate, case-insensitive
+                const all = [...hardcodedAliases, ...userAliases, fieldDef.displayName, canonicalName];
+                return [...new Set(all.map(a => a.toLowerCase()))];
+            },
+
+            /**
+             * Given an unknown field label, find its canonical name
+             * @param {string} unknownLabel - The label from a document (e.g., "Ref #")
+             * @param {string} category - 'meta', 'lineItems', or 'all'
+             * @returns {Object|null} - { category, canonical, displayName } or null
+             */
+            resolveToCanonical(unknownLabel, category = 'all') {
+                const labelLower = unknownLabel.toLowerCase().trim();
+                const categories = category === 'all'
+                    ? ['meta', 'lineItems']
+                    : [category];
+
+                for (const cat of categories) {
+                    for (const [canonical, def] of Object.entries(FIELD_REGISTRY[cat] || {})) {
+                        const aliases = this.getAliases(cat, canonical);
+                        if (aliases.includes(labelLower)) {
+                            return { category: cat, canonical, displayName: def.displayName };
+                        }
+                    }
+                }
+                return null; // Unknown field
+            },
+
+            /**
+             * Build an alias context string for AI prompts
+             * @returns {string} - Formatted alias reference for Gemini
+             */
+            buildAliasContext() {
+                let context = 'Field Alias Reference (use these canonical names in your response):\n';
+                for (const [cat, fields] of Object.entries(FIELD_REGISTRY)) {
+                    context += `\n## ${cat === 'meta' ? 'Document-Level Fields' : 'Line Item Fields'}:\n`;
+                    for (const [canonical, def] of Object.entries(fields)) {
+                        const allAliases = this.getAliases(cat, canonical);
+                        context += `- ${canonical}: [${allAliases.slice(0, 8).join(', ')}${allAliases.length > 8 ? '...' : ''}]\n`;
+                    }
+                }
+                return context;
+            },
+
+            /**
+             * Normalize parsed data by resolving aliases to canonical names
+             * @param {Object} parsedData - Raw parsed data from AI or parser
+             * @returns {Object} - Normalized data with canonical field names
+             */
+            normalizeData(parsedData) {
+                const normalized = { meta: {}, lineItems: [] };
+
+                // Normalize meta fields
+                if (parsedData.meta) {
+                    for (const [key, value] of Object.entries(parsedData.meta)) {
+                        const resolved = this.resolveToCanonical(key, 'meta');
+                        const canonicalKey = resolved ? resolved.canonical : key;
+                        normalized.meta[canonicalKey] = value;
+                    }
+                }
+
+                // Normalize line items
+                if (Array.isArray(parsedData.lineItems)) {
+                    normalized.lineItems = parsedData.lineItems.map(item => {
+                        const normalizedItem = {};
+                        for (const [key, value] of Object.entries(item)) {
+                            const resolved = this.resolveToCanonical(key, 'lineItems');
+                            const canonicalKey = resolved ? resolved.canonical : key;
+                            normalizedItem[canonicalKey] = value;
+                        }
+                        return normalizedItem;
+                    });
+                }
+
+                return normalized;
+            },
+
+            /**
+             * Get field definition by canonical name
+             * @param {string} canonicalName - The canonical field name
+             * @returns {Object|null} - Field definition or null
+             */
+            getFieldDef(canonicalName) {
+                return FIELD_REGISTRY.meta[canonicalName] ||
+                    FIELD_REGISTRY.lineItems[canonicalName] ||
+                    null;
+            }
+        };
+        // #endregion ALIAS_UTILITIES
 
         /*************************************************************************
          * 2. STATE MANAGEMENT
@@ -320,7 +587,8 @@
                     systemPrompt: 'You are an expert data extraction assistant for medical invoices.',
                     vendorAliases: {},
                     customerAliases: {},
-                    fieldLabelAliases: {}
+                    fieldLabelAliases: {},
+                    useAiOnly: false
                 },
                 ui: {
                     sidebarCollapsed: true,
@@ -466,13 +734,25 @@
                     <!-- LEFT PANE: File Status -->
                     <div class="w-full md:w-1/4 min-w-[300px] bg-white border-r border-gray-200 flex flex-col h-full">
                         <!-- Drop Zone -->
-                        <div id="drop-zone" class="p-6 border-b border-gray-200 text-center transition-colors duration-200 hover:bg-gray-50 cursor-pointer">
-                            <div class="mx-auto w-12 h-12 bg-brand-100 text-brand-600 rounded-full flex items-center justify-center mb-3">
+                        <div id="drop-zone" class="m-4 p-6 border-2 border-dashed border-gray-300 rounded-lg text-center transition-colors duration-200 hover:bg-gray-50 hover:border-brand-400 cursor-pointer">
+                            <div class="mx-auto w-12 h-12 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center mb-3">
                                 <i data-lucide="upload-cloud" class="w-6 h-6"></i>
                             </div>
                             <h3 class="text-sm font-medium text-gray-900">Upload Documents</h3>
                             <p class="mt-1 text-xs text-gray-500">Drag & drop PDFs here or click to browse</p>
                             <input type="file" id="file-input" multiple accept=".pdf" class="hidden">
+                        </div>
+
+                        <!-- AI Only Toggle -->
+                        <div class="mx-4 mb-2 flex items-center justify-between text-xs">
+                            <label class="flex items-center gap-2 text-gray-600 cursor-pointer select-none" title="Skip hard-coded parsers and always use Gemini AI">
+                                <input type="checkbox" id="use-ai-only-toggle"
+                                    ${Store.state.config.useAiOnly ? 'checked' : ''}
+                                    onchange="Settings.saveConfig('useAiOnly', this.checked)"
+                                    class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 h-4 w-4">
+                                <span>Use AI Only</span>
+                            </label>
+                            <span class="text-gray-400 italic" id="ai-only-status">${Store.state.config.useAiOnly ? 'Hard-coded parsers disabled' : 'Smart detection enabled'}</span>
                         </div>
 
                         <!-- Processing Queue -->
@@ -658,6 +938,7 @@
                 { name: 'Qty', align: 'right' },
                 { name: 'Part #', align: 'right' },
                 { name: 'Description', align: 'left' },
+                { name: 'UoM', align: 'center' }, // Added UoM
                 { name: 'Price/ea', align: 'right' },
                 { name: 'Price Ext', align: 'right' }
             ];
@@ -706,6 +987,7 @@
                         <td class="${UI.data.tableCell} font-mono text-right">${item.qty || '-'}</td>
                         <td class="${UI.data.tableCell} font-medium text-brand-600 text-right">${item.part_number || '-'}</td>
                         <td class="${UI.data.tableCell} max-w-xs truncate" title="${item.description}">${item.description || '-'}</td>
+                        <td class="${UI.data.tableCell} text-center text-gray-500 text-xs">${item.uom || '-'}</td>
                         <td class="${UI.data.tableCell} text-right font-mono">${formatCurrency(item.unit_price)}</td>
                         <td class="${UI.data.tableCell} text-right font-mono font-bold">${formatCurrency(item.ext_price)}</td>
                     </tr>
@@ -786,13 +1068,7 @@
                     </div>
                 `;
             } else if (tab === 'mappings') {
-                return `
-                    <div class="text-center py-10 text-gray-500">
-                        <i data-lucide="table-2" class="w-12 h-12 mx-auto mb-3 text-gray-300"></i>
-                        <p>Mapping Table Logic Implementation Pending</p>
-                        <p class="text-xs mt-2">Will include Vendor, Customer, and Field Alias management.</p>
-                    </div>
-                `;
+                return renderMappingsTab();
             } else if (tab === 'parser-help') {
                 return `
                     <div class="max-w-2xl space-y-6">
@@ -869,6 +1145,250 @@ Here is the raw text from the sample PDF:
             }
         }
 
+        // #region MAPPINGS_TAB_UI
+        /**
+         * Renders the Settings > Mappings tab with field alias management
+         */
+        function renderMappingsTab() {
+            return `
+                <div class="space-y-6">
+                    <!-- Header with Import/Export/Reset -->
+                    <div class="flex items-center justify-between pb-4 border-b border-gray-200">
+                        <div>
+                            <h3 class="${UI.typography.headingSection} !mb-1">Field Alias Mappings</h3>
+                            <p class="text-xs text-gray-500">
+                                Map document field labels to canonical names. Hardcoded aliases are shown in gray; 
+                                your custom aliases are shown in blue.
+                            </p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="Mappings.exportConfig()" class="${UI.interactive.btnSecondary} text-xs">
+                                <i data-lucide="download" class="w-4 h-4 mr-1"></i> Export
+                            </button>
+                            <label class="${UI.interactive.btnSecondary} text-xs cursor-pointer">
+                                <i data-lucide="upload" class="w-4 h-4 mr-1"></i> Import
+                                <input type="file" accept=".json" onchange="Mappings.importConfig(event)" class="hidden">
+                            </label>
+                            <button onclick="Mappings.resetToDefaults()" class="${UI.interactive.btnSecondary} text-xs text-amber-600 border-amber-300 hover:bg-amber-50">
+                                <i data-lucide="rotate-ccw" class="w-4 h-4 mr-1"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Meta Fields Section -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                            <i data-lucide="file-text" class="w-4 h-4 text-gray-400"></i>
+                            Document-Level Fields (Meta)
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            ${renderFieldAliasCards('meta')}
+                        </div>
+                    </div>
+
+                    <!-- Line Item Fields Section -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                            <i data-lucide="list" class="w-4 h-4 text-gray-400"></i>
+                            Line Item Fields
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            ${renderFieldAliasCards('lineItems')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * Renders alias cards for a category (meta or lineItems)
+         */
+        function renderFieldAliasCards(category) {
+            const fields = FIELD_REGISTRY[category];
+            return Object.entries(fields).map(([canonical, def]) => {
+                const hardcodedAliases = def.aliases || [];
+                const userAliases = Store.state.config.fieldLabelAliases?.[canonical] || [];
+
+                return `
+                    <div class="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                        <div class="flex items-center justify-between mb-2">
+                            <div>
+                                <span class="font-medium text-gray-900">${def.displayName}</span>
+                                <code class="ml-2 text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">${canonical}</code>
+                            </div>
+                            <span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">${def.type}</span>
+                        </div>
+                        
+                        <!-- Alias Tags -->
+                        <div class="flex flex-wrap gap-1 mb-2 min-h-[28px]">
+                            ${hardcodedAliases.map(alias => `
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600">
+                                    ${alias}
+                                </span>
+                            `).join('')}
+                            ${userAliases.map(alias => `
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700 group">
+                                    ${alias}
+                                    <button onclick="Mappings.removeUserAlias('${canonical}', '${alias}')" 
+                                        class="ml-1 text-blue-400 hover:text-red-500 opacity-70 hover:opacity-100">
+                                        <i data-lucide="x" class="w-3 h-3"></i>
+                                    </button>
+                                </span>
+                            `).join('')}
+                        </div>
+                        
+                        <!-- Add Alias Input -->
+                        <div class="flex gap-1">
+                            <input type="text" 
+                                id="alias-input-${canonical}"
+                                placeholder="Add alias..."
+                                class="flex-1 text-xs px-2 py-1 border border-gray-200 rounded focus:ring-1 focus:ring-brand-500 focus:border-brand-500"
+                                onkeydown="if(event.key==='Enter'){Mappings.addUserAlias('${canonical}', this.value); this.value='';}"
+                            >
+                            <button onclick="Mappings.addUserAlias('${canonical}', document.getElementById('alias-input-${canonical}').value); document.getElementById('alias-input-${canonical}').value='';"
+                                class="px-2 py-1 text-xs bg-brand-50 text-brand-600 rounded hover:bg-brand-100 border border-brand-200">
+                                <i data-lucide="plus" class="w-3 h-3"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        // #endregion MAPPINGS_TAB_UI
+
+        // #region MAPPINGS_ACTIONS
+        /**
+         * Mappings module - Handles user alias management
+         */
+        const Mappings = {
+            /**
+             * Add a user-defined alias for a canonical field
+             */
+            addUserAlias(canonical, alias) {
+                const trimmed = alias.trim();
+                if (!trimmed) return;
+
+                if (!Store.state.config.fieldLabelAliases) {
+                    Store.state.config.fieldLabelAliases = {};
+                }
+                if (!Store.state.config.fieldLabelAliases[canonical]) {
+                    Store.state.config.fieldLabelAliases[canonical] = [];
+                }
+
+                // Avoid duplicates (case-insensitive)
+                const existing = Store.state.config.fieldLabelAliases[canonical].map(a => a.toLowerCase());
+                if (existing.includes(trimmed.toLowerCase())) {
+                    debugLog(`Alias "${trimmed}" already exists for ${canonical}`, 'warn');
+                    return;
+                }
+
+                Store.state.config.fieldLabelAliases[canonical].push(trimmed);
+                Store.persist();
+                Router.renderCurrent();
+                debugLog(`Added alias "${trimmed}" to ${canonical}`);
+            },
+
+            /**
+             * Remove a user-defined alias from a canonical field
+             */
+            removeUserAlias(canonical, alias) {
+                if (!Store.state.config.fieldLabelAliases?.[canonical]) return;
+
+                Store.state.config.fieldLabelAliases[canonical] =
+                    Store.state.config.fieldLabelAliases[canonical].filter(a => a !== alias);
+
+                Store.persist();
+                Router.renderCurrent();
+                debugLog(`Removed alias "${alias}" from ${canonical}`);
+            },
+
+            /**
+             * Export field mappings configuration as JSON
+             */
+            exportConfig() {
+                const exportData = {
+                    version: '1.0',
+                    exportDate: new Date().toISOString(),
+                    appVersion: APP.version,
+                    fieldLabelAliases: Store.state.config.fieldLabelAliases || {},
+                    vendorAliases: Store.state.config.vendorAliases || {},
+                    customerAliases: Store.state.config.customerAliases || {}
+                };
+
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `advantien-mappings-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                debugLog('Exported mappings configuration');
+            },
+
+            /**
+             * Import field mappings configuration from JSON file
+             */
+            importConfig(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+
+                        // Validate structure
+                        if (!data.version) {
+                            throw new Error('Invalid configuration file: missing version');
+                        }
+
+                        // Merge imported aliases with existing
+                        if (data.fieldLabelAliases) {
+                            Store.state.config.fieldLabelAliases = {
+                                ...Store.state.config.fieldLabelAliases,
+                                ...data.fieldLabelAliases
+                            };
+                        }
+                        if (data.vendorAliases) {
+                            Store.state.config.vendorAliases = {
+                                ...Store.state.config.vendorAliases,
+                                ...data.vendorAliases
+                            };
+                        }
+                        if (data.customerAliases) {
+                            Store.state.config.customerAliases = {
+                                ...Store.state.config.customerAliases,
+                                ...data.customerAliases
+                            };
+                        }
+
+                        Store.persist();
+                        Router.renderCurrent();
+                        debugLog(`Imported configuration from ${file.name} (v${data.version})`);
+                        alert('Configuration imported successfully!');
+                    } catch (err) {
+                        debugLog(`Import failed: ${err.message}`, 'error');
+                        alert('Failed to import configuration: ' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+                event.target.value = ''; // Reset file input
+            },
+
+            /**
+             * Reset all user-defined aliases to defaults (empty)
+             */
+            resetToDefaults() {
+                if (!confirm('This will remove all your custom aliases. Are you sure?')) return;
+
+                Store.state.config.fieldLabelAliases = {};
+                Store.persist();
+                Router.renderCurrent();
+                debugLog('Reset field aliases to defaults');
+            }
+        };
+        // #endregion MAPPINGS_ACTIONS
 
         function renderMetaTooltip(doc) {
             // Filter out internal fields or empty values if desired
@@ -1215,12 +1735,224 @@ Here is the raw text from the sample PDF:
         };
 
         // --- ADD FUTURE HARD-CODED PARSERS HERE ---
-        // Example:
-        // ParserRegistry.register(
-        //     'Example Arthrex Invoice', 
-        //     (text) => text.includes('Arthrex') && text.includes('Invoice Number'),
-        //     (text) => { return { meta: { parsing_method_id: 'HARD_CODED_ARTHREX', ... }, lineItems: [] }; }
-        // );
+
+        // #region ARTHREX_INVOICE_PARSER
+        ParserRegistry.register(
+            'Arthrex Invoice',
+            (text) => text.includes('Arthrex Inc.') && text.includes('INVOICE'),
+            (text) => {
+                debugLog('[Arthrex Parser] Starting extraction...');
+
+                // Helper to extract values using regex (flexible for both quoted CSV and plain text)
+                const extract = (regex, input = text) => {
+                    const match = input.match(regex);
+                    return match ? match[1].trim() : null;
+                };
+
+                // Extract Meta Data - More flexible patterns for PDF text
+                // Try multiple patterns for each field to handle different formats
+                const invoiceNo = extract(/Invoice\s*(?:Number|No\.?|#)[\s:,]*["']?(\d+)["']?/i);
+                const poNo = extract(/(?:PO|Purchase\s*Order)\s*(?:Number|No\.?|#)?[\s:,]*["']?([\w-]+)["']?/i);
+                const soNo = extract(/Sales\s*Order[\s:,]*["']?(\d+)["']?/i);
+                const orderDate = extract(/Order\s*Date[\s:,]*["']?(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})["']?/i);
+                const shipDate = extract(/Ship\s*Date[\s:,]*["']?(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})["']?/i);
+
+                debugLog(`[Arthrex] Meta: Inv=${invoiceNo}, PO=${poNo}, SO=${soNo}`);
+
+                // Surgeon and Case Info
+                const physician = extract(/(?:SURGEON|Surgeon)\s*(?:NAME)?[\s:,]*([A-Za-z\s\.,']+?)(?:\s{2,}|\n|$)/);
+                const dos = extract(/(?:SURG|Surgery)\s*DATE[\s:,]*["']?(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})["']?/i);
+                const caseId = extract(/CASE\s*ID[\s:,]*["']?([\w\/\-]+)["']?/i);
+
+                // Totals - Multiple pattern attempts
+                const subtotal = parseFloat(
+                    extract(/(?:Sub\s*-?\s*Total|Line\s*Total)[\s:$]*([\d,]+\.?\d*)/i)?.replace(/,/g, '') ||
+                    extract(/\$([\d,]+\.?\d*)\s*(?=.*(?:Tax|Total))/i)?.replace(/,/g, '') ||
+                    0
+                );
+                const totalTax = parseFloat(extract(/(?:Total\s*)?Tax[\s:$]*([\d,]+\.?\d*)/i)?.replace(/,/g, '') || 0);
+                const totalFreight = parseFloat(extract(/(?:Total\s*)?Freight[\s:$]*([\d,]+\.?\d*)/i)?.replace(/,/g, '') || 0);
+                const grandTotal = parseFloat(
+                    extract(/(?:Grand\s*)?Total\s*(?:Amount)?[\s:$]*([\d,]+\.?\d*)/i)?.replace(/,/g, '') ||
+                    extract(/Invoice\s*Total[\s:$]*([\d,]+\.?\d*)/i)?.replace(/,/g, '') ||
+                    0
+                );
+
+                debugLog(`[Arthrex] Totals: Sub=${subtotal}, Tax=${totalTax}, Grand=${grandTotal}`);
+
+                // Extract Line Items - Multiple regex patterns to try
+                const lineItems = [];
+
+                // Pattern 1: AR-XXXXX part numbers with surrounding data
+                // Matches: AR-1234-56 followed by description, then numbers
+                const arPartPattern = /(AR-?\d+[\w-]*)/g;
+                const arParts = text.match(arPartPattern);
+                debugLog(`[Arthrex] Found ${arParts?.length || 0} AR-style part numbers`);
+
+                // Pattern 2: Look for item lines with part number, qty, and price
+                // More flexible pattern for PDF text extraction
+                const linePatterns = [
+                    // Pattern: AR-XXXX Description Qty UoM Price Price
+                    /(AR-?\d+[\w-]*)\s+(.+?)\s+(\d+)\s+(EA|PK|BX|CS|SET)\s+\$?([\d,]+\.?\d*)\s+\$?([\d,]+\.?\d*)/gi,
+                    // Pattern: Part# in table format
+                    /(AR-?\d+[\w-]*)[,\s]+([^,\n]+)[,\s]+(\d+)[,\s]+(EA|PK|BX|CS|SET)?[,\s]+\$?([\d,]+\.?\d*)[,\s]+\$?([\d,]+\.?\d*)/gi,
+                    // Pattern: Quoted CSV format (original)
+                    /"(AR-?[\w-]+)"\s*,\s*"([^"]+)"\s*,?\s*"(\d+)"\s*,\s*"(\w+)"\s*,\s*"[\d,.]+"\s*,\s*"[\d,.]+"\s*,\s*"([\d,.]+)"\s*,\s*"([\d,.]+)"/g
+                ];
+
+                for (const pattern of linePatterns) {
+                    let match;
+                    pattern.lastIndex = 0; // Reset regex
+                    while ((match = pattern.exec(text)) !== null) {
+                        const partNumber = match[1];
+                        const description = match[2]?.replace(/\s+/g, ' ').trim() || '';
+                        const qty = parseInt(match[3]) || 1;
+                        const uom = match[4] || 'EA';
+                        const unitPrice = parseFloat((match[5] || '0').replace(/,/g, ''));
+                        const extPrice = parseFloat((match[6] || '0').replace(/,/g, ''));
+
+                        // Avoid duplicates
+                        if (!lineItems.some(li => li.part_number === partNumber && li.ext_price === extPrice)) {
+                            lineItems.push({
+                                qty,
+                                part_number: partNumber,
+                                description,
+                                unit_price: unitPrice,
+                                ext_price: extPrice,
+                                lot_number: null,
+                                serial_number: null,
+                                expiration_date: null,
+                                uom
+                            });
+                        }
+                    }
+
+                    // If we found items with this pattern, stop trying others
+                    if (lineItems.length > 0) {
+                        debugLog(`[Arthrex] Extracted ${lineItems.length} line items`);
+                        break;
+                    }
+                }
+
+                // If no items found, log a sample of the text for debugging
+                if (lineItems.length === 0) {
+                    debugLog('[Arthrex] WARNING: No line items extracted. Sample text (first 500 chars):');
+                    debugLog(text.substring(0, 500).replace(/\n/g, ' | '));
+                }
+
+                // Look for lot/serial numbers if we have items
+                lineItems.forEach((item, idx) => {
+                    const itemPos = text.indexOf(item.part_number);
+                    if (itemPos > -1) {
+                        const remainingText = text.substring(itemPos, itemPos + 500);
+                        item.lot_number = extract(/(?:Batch|Lot)[\s:#]*(\d+)/i, remainingText);
+                        item.serial_number = extract(/Serial[\s:#]*(\w+)/i, remainingText);
+                    }
+                });
+
+                return {
+                    meta: {
+                        file_name: null,
+                        parsing_method_id: 'Arthrex_JS_v1',
+                        doc_type: 'Invoice',
+                        invoice_no: invoiceNo,
+                        so_no: soNo,
+                        po_no: poNo,
+                        mrn: null,
+                        physician: physician,
+                        dos: dos,
+                        case_id: caseId,
+                        vendor_name: 'Arthrex Inc.',
+                        facility: extract(/Ship\s*To[\s:,]*[^,\n]+[,\s]+([^,\n]+)/i),
+                        order_date: orderDate,
+                        ship_date: shipDate,
+                        subtotal: subtotal,
+                        total_tax: totalTax,
+                        total_freight: totalFreight,
+                        grand_total: grandTotal
+                    },
+                    lineItems: lineItems
+                };
+            }
+        );
+        // #endregion ARTHREX_INVOICE_PARSER
+
+        // #region STRYKER_ORTHO_INVOICE_PARSER
+        ParserRegistry.register(
+            'Stryker Orthopaedics Invoice',
+            (text) => text.includes('Stryker') && text.includes('Orthopaedics') && text.includes('Invoice'),
+            (text) => {
+                const lines = text.split('\n');
+
+                // Helper to extract values using regex
+                const extract = (regex, input = text) => {
+                    const match = input.match(regex);
+                    return match ? match[1].trim() : null;
+                };
+
+                // Meta Data Extraction
+                const invoiceNo = extract(/Invoice Number:\s*["\s,]+(\d+)/);
+                const invoiceDate = extract(/Invoice Date:\s*["\s,]+(\d{2}-\w{3}-\d{2})/);
+                const poNo = extract(/Purchase Order Number:\s*["\s,]+([\w-]+)/);
+                const soNo = extract(/Sales Order Number:\s*["\s,]+(\d+)/);
+                const shipDate = extract(/Ship Date:\s*(?:\r?\n)?[^0-9]*(\d{2}-\w{3}-\d{2})/);
+
+                // Facility extraction (Logic targets the specific shipping destination)
+                const facilityMatch = text.match(/Ship To:\s*["\s,]*([^"\n\r]+)/);
+                const facility = facilityMatch ? facilityMatch[1].trim() : null;
+
+                // Totals extraction
+                const subtotal = parseFloat(extract(/Sub-Total:\s*["\s,]+([\d,.]+)/)?.replace(/,/g, '') || 0);
+                const totalTax = parseFloat(extract(/Tax:\s*["\s,]+([\d,.]+)/)?.replace(/,/g, '') || 0);
+                const totalFreight = parseFloat(extract(/Freight\s*(?::)?\s*["\s,]+([\d,.]+)/)?.replace(/,/g, '') || 0);
+                const grandTotal = parseFloat(extract(/Total:\s*["\s,]+([\d,.]+)/)?.replace(/,/g, '') || 0);
+
+                // Line Item Extraction
+                const lineItems = [];
+                // Matches: Item Number, Description, Qty Ordered, Prev Shipped, Backordered, Qty Shipped, Unit Price, Ext Price
+                const itemRegex = /"([\w-]+)"\s*,\s*"([^"]+)"\s*,\s*"\d+"\s*,\s*"\d+"\s*,\s*"\d+"\s*,\s*"(\d+)"\s*,\s*"([\d,.]+)"\s*,\s*"([\d,.]+)"/g;
+
+                let match;
+                while ((match = itemRegex.exec(text)) !== null) {
+                    lineItems.push({
+                        qty: parseInt(match[3]),
+                        part_number: match[1],
+                        description: match[2].replace(/\s+/g, ' ').trim(),
+                        unit_price: parseFloat(match[4].replace(/,/g, '')),
+                        ext_price: parseFloat(match[5].replace(/,/g, '')),
+                        lot_number: null, // Stryker often provides these on separate packing slips or distinct comment lines
+                        serial_number: null,
+                        expiration_date: null,
+                        uom: 'EA' // Standard default for these orthopedic surgical components
+                    });
+                }
+
+                return {
+                    meta: {
+                        file_name: null,
+                        parsing_method_id: 'Stryker_Ortho_JS_v1',
+                        doc_type: 'Invoice',
+                        invoice_no: invoiceNo,
+                        so_no: soNo,
+                        po_no: poNo,
+                        mrn: null,
+                        physician: null, // Not typically found in the main header of Stryker standard invoices
+                        dos: null,
+                        case_id: null,
+                        vendor_name: 'Stryker Orthopaedics',
+                        facility: facility,
+                        order_date: null,
+                        ship_date: shipDate,
+                        subtotal: subtotal,
+                        total_tax: totalTax,
+                        total_freight: totalFreight,
+                        grand_total: grandTotal
+                    },
+                    lineItems: lineItems
+                };
+            }
+        );
+        // #endregion STRYKER_ORTHO_INVOICE_PARSER
 
         const ParsingEngine = {
             async extractPdfText(arrayBuffer) {
@@ -1249,31 +1981,37 @@ Here is the raw text from the sample PDF:
 
                 const parsingLogic = async () => {
 
-                    // 1. Check Hard-Coded Parsers FIRST
-                    debugLog("Checking for matching hard-coded parser...");
-                    const localParser = ParserRegistry.findParser(text);
+                    // 1. Check Hard-Coded Parsers FIRST (unless useAiOnly is enabled)
+                    const useAiOnly = Store.state.config.useAiOnly;
 
-                    if (localParser) {
-                        debugLog(`Match found: ${localParser.name}. Executing local parser...`);
-                        try {
-                            const result = localParser.parse(text);
-                            // Ensure ID consistency
-                            return {
-                                id: Date.now().toString(36), // will be overwritten by outer loop id usually, but good for safety
-                                meta: {
-                                    file_name: fileName,
-                                    parsing_method_id: `HARD_CODED_${localParser.name.toUpperCase().replace(/\s+/g, '_')}`,
-                                    ...result.meta
-                                },
-                                lineItems: Array.isArray(result.lineItems) ? result.lineItems : []
-                            };
-                        } catch (localErr) {
-                            console.error("Local parser failed, falling back to AI", localErr);
-                            debugLog(`Local parser error: ${localErr.message}. Falling back to AI.`);
-                            // Fallthrough to AI
-                        }
+                    if (useAiOnly) {
+                        debugLog("AI Only mode enabled. Skipping hard-coded parsers.");
                     } else {
-                        debugLog("No hard-coded parser match. Falling back to Gemini.");
+                        debugLog("Checking for matching hard-coded parser...");
+                        const localParser = ParserRegistry.findParser(text);
+
+                        if (localParser) {
+                            debugLog(`Match found: ${localParser.name}. Executing local parser...`);
+                            try {
+                                const result = localParser.parse(text);
+                                // Ensure ID consistency
+                                return {
+                                    id: Date.now().toString(36), // will be overwritten by outer loop id usually, but good for safety
+                                    meta: {
+                                        file_name: fileName,
+                                        parsing_method_id: `HARD_CODED_${localParser.name.toUpperCase().replace(/\s+/g, '_')}`,
+                                        ...result.meta
+                                    },
+                                    lineItems: Array.isArray(result.lineItems) ? result.lineItems : []
+                                };
+                            } catch (localErr) {
+                                console.error("Local parser failed, falling back to AI", localErr);
+                                debugLog(`Local parser error: ${localErr.message}. Falling back to AI.`);
+                                // Fallthrough to AI
+                            }
+                        } else {
+                            debugLog("No hard-coded parser match. Falling back to Gemini.");
+                        }
                     }
 
                     // 2. Prepare Key (AI Fallback)
@@ -1282,19 +2020,24 @@ Here is the raw text from the sample PDF:
                         throw new Error("No Gemini API Key provided. Please check Settings.");
                     }
 
-                    // 3. Construct Prompt (AI Fallback)
+                    // 3. Construct Prompt with Alias Context (AI Fallback)
                     const systemPrompt = Store.state.config.systemPrompt || "You are an expert data extraction assistant.";
+                    const aliasContext = AliasEngine.buildAliasContext();
                     const prompt = `${systemPrompt}
 
 You will be given the text content of a medical invoice/document.
-Your task is to extract specific data fields and valid JSON object matching the EXACT schema below.
+Your task is to extract specific data fields and return a valid JSON object matching the EXACT schema below.
 
 SCHEMA:
 ${JSON.stringify(APP_SCHEMA, null, 2)}
 
+${aliasContext}
+
 INSTRUCTIONS:
 - Return ONLY valid JSON. 
 - Do not include markdown formatting (like \`\`\`json).
+- Use the CANONICAL field names from the schema (e.g., 'part_number', not 'Item #').
+- If a document uses an alias (like "Ref #" for part_number), map it to the canonical name.
 - If a field is not found, use null or empty string.
 - Identify the 'parsing_method_id' as 'AI_GEMINI_2.5'.
 - For 'lineItems', extract all available rows.
@@ -1304,7 +2047,7 @@ ${text.substring(0, 30000)}
                     `;
 
                     // 4. Call API
-                    debugLog(`Sending ${text.length} chars to Gemini 2.5...`);
+                    debugLog(`Sending ${text.length} chars to Gemini 2.5 (with alias context)...`);
 
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                         method: 'POST',
@@ -1336,15 +2079,18 @@ ${text.substring(0, 30000)}
                         throw new Error("Failed to parse AI response as JSON.");
                     }
 
-                    // 6. Structure Result
+                    // 6. Normalize response using AliasEngine (resolve any alias field names to canonical)
+                    const normalizedData = AliasEngine.normalizeData(parsedData);
+
+                    // 7. Structure Result
                     return {
                         id: Date.now().toString(36), // Updates ID if needed, or keeps outer logic
                         meta: {
                             parsing_method_id: 'AI_GEMINI_2.5',
-                            ...parsedData.meta,
+                            ...normalizedData.meta,
                             file_name: fileName
                         },
-                        lineItems: Array.isArray(parsedData.lineItems) ? parsedData.lineItems : []
+                        lineItems: Array.isArray(normalizedData.lineItems) ? normalizedData.lineItems : []
                     };
                 };
 
@@ -1528,16 +2274,18 @@ ${text.substring(0, 30000)}
 
             if (!countEl || !totalEl) return;
 
-
-
             const docs = Files.getVisibleDocuments();
-
             const fileCount = new Set(docs.map(d => d.id)).size;
 
             let lineCount = 0;
-            let totalPrice = 0;
+            let totalPrice = 0;       // Calculated from line items sum
+            let extractedSubtotal = 0; // Sum of doc.meta.subtotal
 
             docs.forEach(doc => {
+                // Sum extracted subtotal
+                const sub = parseFloat(String(doc.meta.subtotal).replace(/[^0-9.-]+/g, '')) || 0;
+                extractedSubtotal += sub;
+
                 if (doc.lineItems) {
                     lineCount += doc.lineItems.length;
                     doc.lineItems.forEach(item => {
@@ -1550,7 +2298,43 @@ ${text.substring(0, 30000)}
 
             countEl.textContent = fileCount;
             if (linesEl) linesEl.textContent = lineCount;
-            totalEl.textContent = formatCurrency(totalPrice);
+
+            // Logic to display comparison
+            // Only compare if we actually extracted a subtotal
+            if (extractedSubtotal > 0) {
+                const diff = Math.abs(extractedSubtotal - totalPrice);
+                const isMatch = diff < 0.05; // 5 cent tolerance for rounding
+
+                if (isMatch) {
+                    totalEl.innerHTML = `
+                        <div class="flex items-center gap-2 text-green-700" title="Extracted Subtotal matches Line Item Sum">
+                            <i data-lucide="check-circle" class="w-4 h-4"></i>
+                            <span class="text-xs uppercase font-semibold">Verified Total:</span>
+                            <span class="font-mono font-bold text-base">${formatCurrency(totalPrice)}</span>
+                        </div>
+                    `;
+                } else {
+                    totalEl.innerHTML = `
+                        <div class="flex items-center gap-3 text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">
+                            <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+                            <div class="flex flex-col leading-none">
+                                <span class="text-[10px] uppercase font-bold mb-0.5">Mismatch Detected</span>
+                                <span class="font-mono text-xs">
+                                    Doc: ${formatCurrency(extractedSubtotal)} ≠ Calc: ${formatCurrency(totalPrice)}
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                // Fallback: No subtotal extracted, just show calculated
+                totalEl.innerHTML = `
+                    <span class="text-xs uppercase text-indigo-400 font-semibold mr-2">Calc Total:</span>
+                    <span class="font-mono">${formatCurrency(totalPrice)}</span>
+                `;
+            }
+
+            if (window.lucide) lucide.createIcons();
         }
 
         // --- Utils & Debug ---
