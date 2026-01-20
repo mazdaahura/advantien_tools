@@ -316,7 +316,7 @@
                 selectedFileId: null,
                 processingQueue: [],    // [{ file, status, progress }]
                 config: {
-                    geminiApiKey: 'AIzaSyCol1yF24ic_DMK5BNer0NjiCOt0-FPcNo',
+                    geminiApiKey: '',
                     systemPrompt: 'You are an expert data extraction assistant for medical invoices.',
                     vendorAliases: {},
                     customerAliases: {},
@@ -478,8 +478,25 @@
                         <!-- Processing Queue -->
                         <div class="flex-1 overflow-y-auto p-0">
                             <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center sm:px-6">
-                                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Queue (${Store.state.documents.length})</h3>
-                                <button class="text-xs text-brand-600 hover:text-brand-700" onclick="Files.clearSelection()">Show All</button>
+                                <div class="flex items-center gap-2">
+                                    <input type="checkbox" id="select-all-files" 
+                                        onchange="Files.toggleAll(this.checked)"
+                                        ${Store.state.documents.length > 0 && Store.state.documents.every(d => d.isChecked !== false) ? 'checked' : ''}
+                                        class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 h-4 w-4"
+                                        title="Select/Unselect All">
+                                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Files (${Store.state.documents.length})</h3>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button class="text-xs text-brand-600 hover:text-brand-700 font-medium" onclick="Files.clearSelection()" 
+                                        style="${Store.state.selectedFileId ? '' : 'display:none'}">
+                                        Exit Focus
+                                    </button>
+                                    <button onclick="Actions.clearBatch()" 
+                                        class="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1 rounded transition-colors"
+                                        title="Clear All Files">
+                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
                             </div>
                             <ul class="divide-y divide-gray-100" id="file-queue-list">
                                 ${renderFileQueueItems()}
@@ -500,9 +517,7 @@
                                         class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 h-4 w-4">
                                     Show Details
                                 </label>
-                                <button onclick="Actions.clearBatch()" class="${UI.interactive.btnSecondary} text-xs">
-                                    <i data-lucide="trash-2" class="w-4 h-4 mr-2"></i> Clear Batch
-                                </button>
+                                <!-- Clear Batch moved to sidebar -->
                                 <button onclick="Actions.copyForExcel()" class="${UI.interactive.btnSecondary} text-xs">
                                     <i data-lucide="copy" class="w-4 h-4 mr-2"></i> Copy for Excel
                                 </button>
@@ -567,6 +582,7 @@
                 const status = doc.meta.parsing_method_id || 'UNKNOWN';
                 const isFailed = status === 'FAILED';
                 const isProcessing = status === 'Processing...';
+                const isWaiting = status === 'Waiting...';
                 const isUnknown = status === 'UNKNOWN';
 
                 let icon = 'check-circle';
@@ -574,14 +590,32 @@
 
                 if (isFailed) { icon = 'alert-circle'; color = 'text-red-500'; }
                 else if (isProcessing) { icon = 'loader'; color = 'text-blue-500 animate-spin'; }
+                else if (isWaiting) { icon = 'clock'; color = 'text-gray-400'; }
                 else if (isUnknown) { icon = 'help-circle'; color = 'text-amber-500'; }
+
+                let errorMsg = doc.meta.error_message || 'Error';
+                let isQuotaError = false;
+                let retrySeconds = '';
+
+                if (isFailed && errorMsg.includes('Quota exceeded') && errorMsg.includes('retry in')) {
+                    isQuotaError = true;
+                    const match = errorMsg.match(/retry in\s+([\d.]+)/);
+                    if (match) retrySeconds = Math.ceil(parseFloat(match[1]));
+                    errorMsg = `Failed. Quota Exceeded. Try again in ${retrySeconds}s.`;
+                } else if (isFailed) {
+                    errorMsg = 'Failed: ' + errorMsg;
+                }
 
                 return `
                     <li onclick="Files.selectFile('${doc.id}')" 
                         class="px-4 py-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between transition-colors ${Store.state.selectedFileId === doc.id ? 'bg-brand-50 border-l-4 border-brand-500' : ''}">
                         <div class="flex items-center min-w-0 flex-1">
+                            <input type="checkbox" 
+                                onclick="event.stopPropagation(); Files.toggleFile('${doc.id}', this.checked)"
+                                ${doc.isChecked !== false ? 'checked' : ''}
+                                class="mr-3 rounded border-gray-300 text-brand-600 focus:ring-brand-500 h-4 w-4 shrink-0">
                             <i data-lucide="${icon}" 
-                               class="w-4 h-4 mr-3 ${color}">
+                               class="w-4 h-4 mr-3 ${color} shrink-0">
                             </i>
                             <div class="min-w-0 flex-1">
                                 <p class="text-sm font-medium text-gray-900 truncate" 
@@ -589,11 +623,25 @@
                                    onmouseleave="Tooltip.hide()">
                                     ${doc.meta.file_name}
                                 </p>
-                                <p class="text-xs ${isFailed ? 'text-red-600' : 'text-gray-500'} truncate" title="${doc.meta.error_message || ''}">
-                                    ${isFailed ? 'Failed: ' + (doc.meta.error_message || 'Error') : status}
-                                </p>
+                                <div class="flex items-center gap-2">
+                                     <p class="text-xs ${isFailed ? 'text-red-600' : 'text-gray-500'} truncate" title="${doc.meta.error_message || ''}">
+                                        ${isFailed ? errorMsg : status}
+                                    </p>
+                                    ${isQuotaError ? `
+                                        <button onclick="event.stopPropagation(); Files.retryFile('${doc.id}')" 
+                                            class="p-0.5 px-1.5 bg-brand-50 text-brand-600 hover:bg-brand-100 rounded text-[10px] font-medium border border-brand-200 shadow-sm flex items-center gap-1"
+                                            title="Retry AI Processing">
+                                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Retry
+                                        </button>
+                                    ` : ''}
+                                </div>
                             </div>
                         </div>
+                        <button onclick="event.stopPropagation(); Files.deleteFile('${doc.id}')" 
+                            class="ml-2 p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                            title="Delete File">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
                     </li>
                 `;
             }).join('');
@@ -629,11 +677,9 @@
         }
 
         function renderTableRows() {
-            const docs = Store.state.selectedFileId
-                ? Store.state.documents.filter(d => d.id === Store.state.selectedFileId)
-                : Store.state.documents;
+            const docs = Files.getVisibleDocuments();
 
-            if (docs.length === 0) return `<tr><td colspan="15" class="px-6 py-10 text-center text-sm text-gray-500">No data available</td></tr>`;
+            if (docs.length === 0) return `<tr><td colspan="15" class="px-6 py-10 text-center text-sm text-gray-500">No data available (Check filters)</td></tr>`;
 
             return docs.flatMap(doc => {
                 // If no line items, show at least one row with meta
@@ -706,8 +752,11 @@
                             <label class="${UI.typography.label}">Gemini API Key</label>
                             <div class="flex items-center gap-2">
                                 <input type="password" id="api-key" value="${Store.state.config.geminiApiKey}" 
-                                    onchange="Settings.saveConfig('geminiApiKey', this.value)"
                                     class="${UI.interactive.inputBase}" placeholder="AIza...">
+                                <button onclick="Settings.saveConfig('geminiApiKey', document.getElementById('api-key').value)" 
+                                    class="${UI.interactive.btnPrimary} shrink-0">
+                                    Save
+                                </button>
                                 <span id="api-key-feedback" class="text-green-600 text-xs font-medium opacity-0 transition-opacity duration-300 flex items-center gap-1">
                                     <i data-lucide="check" class="w-3 h-3"></i> Saved!
                                 </span>
@@ -948,76 +997,77 @@ Here is the raw text from the sample PDF:
 
             async processFiles(fileList) {
                 try {
-                    const files = Array.from(fileList);
-                    debugLog(`Batch accepted: ${files.length} files`);
+                    const files = Array.from(fileList).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+                    debugLog(`Batch accepted: ${files.length} valid PDF files`);
 
+                    if (files.length === 0) return;
+
+                    // 1. Queue ALL files immediately
+                    const queueItems = [];
                     for (let file of files) {
-                        debugLog(`Inspecting file: ${file.name} (${file.type})`);
-
-                        // Looser check for PDF to avoid false negatives?
-                        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-                            debugLog(`Skipping non-PDF.`);
-                            continue;
-                        }
-
-                        // 1. Read Data FIRST (prevents DOM destruction issues)
-                        debugLog(`Reading file data...`);
-                        let arrayBuffer;
-                        try {
-                            arrayBuffer = await file.arrayBuffer();
-                            debugLog(`File data read (${arrayBuffer.byteLength} bytes).`);
-                        } catch (readErr) {
-                            debugLog(`Failed to read file: ${readErr.message}`);
-                            continue;
-                        }
-
-                        // 2. Queue in UI
                         const docId = Date.now().toString(36) + Math.random().toString(36).substr(2);
                         const placeholder = {
                             id: docId,
                             meta: {
                                 file_name: file.name,
-                                parsing_method_id: 'Processing...',
+                                parsing_method_id: 'Waiting...',
+                                file_name: file.name,
+                                parsing_method_id: 'Waiting...',
                                 error_message: null
                             },
+                            isChecked: true,
                             lineItems: []
                         };
                         Store.state.documents.push(placeholder);
+                        queueItems.push({ file, id: docId });
+                    }
 
-                        // 3. Render UI (Input may be destroyed here, but we have the buffer)
-                        Router.renderCurrent();
+                    Router.renderCurrent();
 
-                        // Small yield for UI paint
+                    // 2. Process sequentially
+                    for (let item of queueItems) {
+                        const { file, id: docId } = item;
+
+                        // Set status to Processing
+                        const startIdx = Store.state.documents.findIndex(d => d.id === docId);
+                        if (startIdx !== -1) {
+                            Store.state.documents[startIdx].meta.parsing_method_id = 'Processing...';
+                            Router.renderCurrent();
+                        }
+
+                        // Small yield
                         await new Promise(r => setTimeout(r, 50));
 
                         try {
-                            // 4. Process
+                            debugLog(`Results for: ${file.name}`);
+
+                            // Read Data
+                            const arrayBuffer = await file.arrayBuffer();
+
                             if (typeof pdfjsLib === 'undefined') throw new Error("PDF.js library not loaded.");
-
-                            debugLog(`Extracting text from buffer...`);
-
-                            // ... (parsing logic would go here, simulated for now) ...
-                            // In a real app, we'd use pdf.js to get text, then run parsers.
-
-                            // For now, let's just trigger summary update after "processing"
-                            updateParserSummary();
-
 
                             const text = await ParsingEngine.extractPdfText(arrayBuffer);
                             debugLog(`Text extracted (${text.length} chars). Sending to AI...`);
 
-                            const result = await ParsingEngine.parse(text, file.name);
-                            debugLog(`AI Response received.`);
-
-                            // 5. Update Success
+                            // Store raw text for retry possibilities
                             const idx = Store.state.documents.findIndex(d => d.id === docId);
                             if (idx !== -1) {
-                                Store.state.documents[idx] = { ...result, id: docId };
-                                if (Store.state.documents[idx].meta.parsing_method_id === 'Processing...') {
-                                    Store.state.documents[idx].meta.parsing_method_id = 'PARSED_UNKNOWN';
+                                Store.state.documents[idx].raw_text = text;
+                            }
+
+                            const result = await ParsingEngine.parse(text, file.name);
+
+                            // Update Success
+                            // Refresh idx in case of shift (unlikely here but safe practice)
+                            const finalIdx = Store.state.documents.findIndex(d => d.id === docId);
+                            if (finalIdx !== -1) {
+                                Store.state.documents[finalIdx] = { ...result, id: docId, raw_text: text, isChecked: true };
+                                if (Store.state.documents[finalIdx].meta.parsing_method_id === 'Processing...') {
+                                    Store.state.documents[finalIdx].meta.parsing_method_id = 'PARSED_UNKNOWN';
                                 }
                                 Store.persist();
                                 Router.renderCurrent();
+                                updateParserSummary();
                                 debugLog(`Done: ${file.name}`);
                             }
                         } catch (err) {
@@ -1028,6 +1078,10 @@ Here is the raw text from the sample PDF:
                             if (idx !== -1) {
                                 Store.state.documents[idx].meta.parsing_method_id = 'FAILED';
                                 Store.state.documents[idx].meta.error_message = err.message;
+                                // Persist raw text even on fail if we got it
+                                if (Store.state.documents[idx].raw_text) {
+                                    // keep it
+                                }
                                 Store.persist();
                                 Router.renderCurrent();
                             }
@@ -1043,7 +1097,91 @@ Here is the raw text from the sample PDF:
 
             selectFile(id) {
                 Store.state.selectedFileId = id;
+                // Auto-check if selecting so it is visible
+                const doc = Store.state.documents.find(d => d.id === id);
+                if (doc) doc.isChecked = true;
+                Store.persist();
                 Router.renderCurrent();
+            },
+
+            toggleFile(id, checked) {
+                const doc = Store.state.documents.find(d => d.id === id);
+                if (doc) {
+                    doc.isChecked = checked;
+
+                    // If hiding the currently selected file, exit focus mode
+                    if (!checked && Store.state.selectedFileId === id) {
+                        Store.state.selectedFileId = null;
+                    }
+
+                    Store.persist();
+                    Router.renderCurrent();
+                }
+            },
+
+            toggleAll(checked) {
+                Store.state.documents.forEach(d => d.isChecked = checked);
+                Store.state.selectedFileId = null; // Clear focus when toggling all
+                Store.persist();
+                Router.renderCurrent();
+            },
+
+            getVisibleDocuments() {
+                // 1. Always filter by checked status first
+                const visible = Store.state.documents.filter(d => d.isChecked !== false);
+
+                // 2. Then apply focus filter if active
+                if (Store.state.selectedFileId) {
+                    return visible.filter(d => d.id === Store.state.selectedFileId);
+                }
+                return visible;
+            },
+
+            deleteFile(id) {
+                if (confirm('Are you sure you want to remove this file?')) {
+                    Store.state.documents = Store.state.documents.filter(d => d.id !== id);
+                    if (Store.state.selectedFileId === id) {
+                        Store.state.selectedFileId = null;
+                    }
+                    Store.persist();
+                    Router.renderCurrent();
+                    debugLog(`File removed: ${id}`);
+                }
+            },
+
+            async retryFile(id) {
+                const doc = Store.state.documents.find(d => d.id === id);
+                if (!doc || !doc.raw_text) {
+                    alert('Cannot retry: Source text missing. Please re-upload the file.');
+                    return;
+                }
+
+                doc.meta.parsing_method_id = 'Processing...';
+                doc.meta.error_message = null;
+                Router.renderCurrent();
+                debugLog(`Retrying file: ${doc.meta.file_name}`);
+
+                try {
+                    const result = await ParsingEngine.parse(doc.raw_text, doc.meta.file_name);
+
+                    const idx = Store.state.documents.findIndex(d => d.id === id);
+                    if (idx !== -1) {
+                        Store.state.documents[idx] = { ...result, id: id, raw_text: doc.raw_text, isChecked: true };
+                        Store.persist();
+                        Router.renderCurrent();
+                        updateParserSummary();
+                        debugLog(`Retry successful: ${doc.meta.file_name}`);
+                    }
+                } catch (err) {
+                    debugLog(`Retry failed: ${err.message}`);
+                    const idx = Store.state.documents.findIndex(d => d.id === id);
+                    if (idx !== -1) {
+                        Store.state.documents[idx].meta.parsing_method_id = 'FAILED';
+                        Store.state.documents[idx].meta.error_message = err.message;
+                        Store.persist();
+                        Router.renderCurrent();
+                    }
+                }
             },
 
             clearSelection() {
@@ -1288,13 +1426,84 @@ ${text.substring(0, 30000)}
                     Router.renderCurrent();
                 }
             },
-            copyForExcel() {
-                // Tab delimited string builder
-                // ... implementation
-                alert('Copied to clipboard (Mock)');
+            async copyForExcel() {
+                // 1. Determine Headers based on current UI state
+                let headers = [];
+                if (Store.state.ui.showMetadata) {
+                    headers.push('File', 'Parsing Method', 'Type', 'Inv #', 'SO #', 'PO #', 'MRN', 'Physician', 'DOS', 'Case ID');
+                }
+                headers.push('Qty', 'Part #', 'Description', 'Price/ea', 'Price Ext');
+
+                // 2. Filter Data based on current selection
+                const docs = Files.getVisibleDocuments();
+
+                if (docs.length === 0) {
+                    alert('No data to copy.');
+                    return;
+                }
+
+                // 3. Build Rows
+                const rows = docs.flatMap(doc => {
+                    const items = doc.lineItems.length ? doc.lineItems : [{}];
+                    return items.map(item => {
+                        let rowData = [];
+
+                        if (Store.state.ui.showMetadata) {
+                            rowData.push(
+                                doc.meta.file_name,
+                                doc.meta.parsing_method_id,
+                                doc.meta.doc_type,
+                                doc.meta.invoice_no,
+                                doc.meta.so_no,
+                                doc.meta.po_no,
+                                doc.meta.mrn,
+                                doc.meta.physician,
+                                doc.meta.dos,
+                                doc.meta.case_id
+                            );
+                        }
+
+                        rowData.push(
+                            item.qty,
+                            item.part_number,
+                            item.description,
+                            item.unit_price,
+                            item.ext_price
+                        );
+
+                        // Clean data: replace nulls/undefined with empty string, remove tabs/newlines from content
+                        return rowData.map(val =>
+                            (val === null || val === undefined) ? '' : String(val).replace(/[\t\n\r]/g, ' ')
+                        ).join('\t');
+                    });
+                });
+
+                // 4. Combine key parts
+                const tsv = [headers.join('\t'), ...rows].join('\n');
+
+                // 5. Copy to Clipboard
+                try {
+                    await navigator.clipboard.writeText(tsv);
+                    // Simple user feedback - could be improved with a toast
+                    const btn = document.querySelector('button[onclick="Actions.copyForExcel()"]');
+                    if (btn) {
+                        const originalHtml = btn.innerHTML;
+                        btn.innerHTML = '<i data-lucide="check" class="w-4 h-4 mr-2"></i> Copied!';
+                        if (window.lucide) lucide.createIcons();
+                        setTimeout(() => {
+                            btn.innerHTML = originalHtml;
+                            if (window.lucide) lucide.createIcons();
+                        }, 2000);
+                    } else {
+                        alert('Copied specific data to clipboard!');
+                    }
+                } catch (err) {
+                    console.error('Failed to copy: ', err);
+                    alert('Failed to copy to clipboard.');
+                }
             },
             downloadCSV() {
-                const docs = Store.state.documents;
+                const docs = Files.getVisibleDocuments();
                 const rows = docs.flatMap(d => d.lineItems.map(item => ({ ...d.meta, ...item })));
                 const csv = Papa.unparse(rows);
                 const blob = new Blob([csv], { type: 'text/csv' });
@@ -1321,9 +1530,7 @@ ${text.substring(0, 30000)}
 
 
 
-            const docs = Store.state.selectedFileId
-                ? Store.state.documents.filter(d => d.id === Store.state.selectedFileId)
-                : Store.state.documents;
+            const docs = Files.getVisibleDocuments();
 
             const fileCount = new Set(docs.map(d => d.id)).size;
 
